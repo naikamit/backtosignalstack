@@ -4,9 +4,9 @@ from signalstack import SignalStackClient
 from state import TradeState
 from config import MAX_SHARES, PAUSE_SECONDS, logger
 
-class BinarySearchTrader:
+class IterativeTrader:
     """
-    Implements a trading strategy using binary search to find the maximum 
+    Implements a trading strategy using an iterative approach to find the maximum 
     number of shares that can be bought.
     """
     
@@ -16,14 +16,14 @@ class BinarySearchTrader:
         
         Args:
             client (SignalStackClient, optional): The API client to use
-            max_shares (int, optional): The maximum number of shares to start with
+            max_shares (int, optional): The initial number of shares to try
             pause_seconds (int, optional): Seconds to pause between API calls
         """
         self.client = client or SignalStackClient()
         self.max_shares = max_shares or MAX_SHARES
         self.pause_seconds = pause_seconds or PAUSE_SECONDS
         self.state = TradeState()
-        logger.info(f"Initialized BinarySearchTrader with max_shares: {self.max_shares}")
+        logger.info(f"Initialized IterativeTrader with initial shares: {self.max_shares}")
     
     def is_in_cooldown(self):
         """
@@ -51,8 +51,8 @@ class BinarySearchTrader:
             self.client.close_positions("MSTZ")
             return True
         
-        # Try to buy MSTU using binary search
-        success = self.binary_search_buy("MSTU")
+        # Try to buy MSTU using iterative approach
+        success = self.iterative_buy("MSTU")
         
         # If buy was successful, pause and close MSTZ positions
         if success:
@@ -82,8 +82,8 @@ class BinarySearchTrader:
             self.client.close_positions("MSTZ")
             return True
         
-        # Try to buy MSTZ using binary search
-        success = self.binary_search_buy("MSTZ")
+        # Try to buy MSTZ using iterative approach
+        success = self.iterative_buy("MSTZ")
         
         # If buy was successful, pause and close MSTU positions
         if success:
@@ -96,9 +96,12 @@ class BinarySearchTrader:
         logger.warning("Short signal strategy failed - could not buy any MSTZ shares")
         return False
     
-    def binary_search_buy(self, symbol):
+    def iterative_buy(self, symbol):
         """
-        Use binary search to find and buy the maximum number of shares possible.
+        Use iterative approach to buy as many shares as possible.
+        Start with max_shares and keep trying to buy that amount.
+        If buy fails, halve the quantity and try again.
+        Continue until even a single share cannot be bought.
         
         Args:
             symbol (str): The stock symbol to buy
@@ -106,35 +109,34 @@ class BinarySearchTrader:
         Returns:
             bool: Whether any shares were successfully bought
         """
-        logger.info(f"Starting binary search to buy maximum shares of {symbol}")
+        logger.info(f"Starting iterative buy for {symbol}")
         
-        low = 1
-        high = self.max_shares
-        max_successful_quantity = 0
+        quantity = self.max_shares
+        any_success = False
+        total_bought = 0
         
-        while low <= high:
-            mid = (low + high) // 2
-            logger.info(f"Trying to buy {mid} shares of {symbol}")
+        # Continue until we can't buy even 1 share
+        while quantity >= 1:
+            logger.info(f"Trying to buy {quantity} shares of {symbol}")
             
-            _, success = self.client.buy(symbol, mid)
+            _, success = self.client.buy(symbol, quantity)
             
             if success:
-                logger.info(f"Successfully bought {mid} shares of {symbol}")
-                max_successful_quantity = mid
-                low = mid + 1  # Try a larger quantity
+                logger.info(f"Successfully bought {quantity} shares of {symbol}")
+                total_bought += quantity
+                any_success = True
+                # Try to buy the same quantity again
+                # No need to change quantity here
             else:
-                logger.info(f"Failed to buy {mid} shares of {symbol}")
-                high = mid - 1  # Try a smaller quantity
+                logger.info(f"Failed to buy {quantity} shares of {symbol}")
+                # Halve the quantity
+                quantity = quantity // 2
             
             # Pause before next attempt
             self._pause()
         
-        if max_successful_quantity > 0:
-            logger.info(f"Binary search complete. Maximum shares bought: {max_successful_quantity}")
-            return True
-        else:
-            logger.warning(f"Binary search complete. Could not buy any shares of {symbol}")
-            return False
+        logger.info(f"Iterative buy complete. Total shares bought: {total_bought}")
+        return any_success
     
     def _pause(self, seconds=None):
         """
