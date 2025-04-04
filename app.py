@@ -3,10 +3,10 @@ import os
 from flask import Flask, request, jsonify
 import logging
 from config import logger
-from trader import BinarySearchTrader
+from trader import IterativeTrader
 
 app = Flask(__name__)
-trader = BinarySearchTrader()
+trader = IterativeTrader()
 
 @app.route('/webhook', methods=['POST'])
 def webhook():
